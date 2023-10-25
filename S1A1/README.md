@@ -1,1 +1,1 @@
-PAth PLanning and Obstacle Avoidance using Reinforcement Learning
+Path PLanning and Obstacle Avoidance using Reinforcement Learning
