@@ -26,7 +26,7 @@ from gymnasium import spaces
 class SimpleEnv(gym.Env):
     metadata = { "render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, render_mode=None, size=5):
+    def __init__(self, render_mode=None, size=10):
         self.size = size #Size of the observation space
         self.window_size = 512 #Size of the action space 
 
@@ -36,8 +36,6 @@ class SimpleEnv(gym.Env):
                 "Goal": spaces.Box(0, size -1, shape=(2,), dtype=int),
                 "Obs1": spaces.Box(0, size - 1, shape=(2,), dtype=int),
             }
-    
-
         ) 
 
         self.action_space = spaces.Discrete(4)
@@ -64,10 +62,10 @@ class SimpleEnv(gym.Env):
 
     def _get_info(self):
     # Calculate distance from agent to obstacle
-        distance_Obj_to_obstacle = np.linalg.norm(self._Obj_location - self._Obs1_location, ord=1)
-
+        #distance_Obj_to_obstacle = np.linalg.norm(self._Obj_location - self._Obs1_location, ord=1)
+        distance_Obj_to_obstacle = np.linalg.norm(np.array(self._Obj_location) - np.array(self._Obs1_location), ord=1)
     # Calculate distance from obstacle to target
-        distance_Obs1_to_target = np.linalg.norm(self._Obs1_location - self._Goal_location, ord=1)
+        distance_Obs1_to_target = np.linalg.norm(np.array(self._Obs1_location) - np.array(self._Goal_location), ord=1)
 
     # Calculate total distance, accounting for the obstacle
         total_distance = distance_Obj_to_obstacle + distance_Obs1_to_target
@@ -80,17 +78,11 @@ class SimpleEnv(gym.Env):
                 # We need the following line to seed self.np_random
         super().reset(seed=seed)
 
-        # Choose the agent's location uniformly at random
-        self._Obj_location = self.np_random.integers(0, self.size, size=2, dtype=int)
-       
-
-        # We will sample the target's location randomly until it does not coincide with the agent's location
-        self._Goal_location = self._Obj_location
-        while np.array_equal(self._Goal_location, self._Obj_location):
-            self._Goal_location = self.np_random.integers(
-                0, self.size, size=2, dtype=int
-            )
-        self._Obs1_location = (self._Obj_location + self._Goal_location) // 2
+            # Set fixed object and goal positions
+        self._Obj_location = np.array([0, 0])  # Set to your desired fixed location
+        self._Goal_location = np.array([7, 9])  # Set to your desired fixed location
+        self._Obs1_location = np.array([2, 2])  # Set to your desired fixed location
+        
         observation = self._get_obs()
         info = self._get_info()
 
@@ -99,18 +91,40 @@ class SimpleEnv(gym.Env):
 
         return observation, info
     
+    def calculate_reward(self):
+        # Calculate the Euclidean distance between the object and the goal
+        distance_to_goal = np.linalg.norm(self._Obj_location - self._Goal_location)
+        # Initialize the reward
+        reward = 0.0
+        # Check if the object has reached the goal
+        if distance_to_goal < 1e-2:
+            # Reward for successfully reaching the goal
+            reward = 1.0
+        else:
+            # Penalize for the distance to the goal (encourage getting closer)
+            reward = -0.1 * distance_to_goal
+
+        # Additional penalty for colliding with the obstacle
+        if np.array_equal(self._Obj_location, self._Obs1_location):
+            reward -= 0.7  # Add a collision penalty
+
+        return reward
+   
     def step(self, action):
         # Map the action (element of {0,1,2,3}) to the direction we walk in
         direction = self._action_to_direction[action]
         # We use `np.clip` to make sure we don't leave the grid
         next_location = np.clip(self._Obj_location + direction, 0, self.size - 1)
-
-    # Check if the potential next location is not blocked by an obstacle
-        if next_location != self._Obs1_location:
-            self._Obj_location = next_location
-        # An episode is done iff the agent has reached the target
+  
+        next_location = np.array(next_location)  # Convert to NumPy array
+        obs_locations = np.array(self._Obs1_location)  # Convert to NumPy array
+        
+        if not np.any(np.all(next_location == obs_locations)):
+            self._Obj_location = next_location 
+        reward = self.calculate_reward()
         terminated = np.array_equal(self._Obj_location, self._Goal_location)
-        reward = 1 if terminated else 0  # Binary sparse rewards
+        # reward = 1 if terminated else 0  # Binary sparse rewards
+      
         observation = self._get_obs()
         info = self._get_info()
 
@@ -144,7 +158,7 @@ class SimpleEnv(gym.Env):
             canvas,
             (255, 0, 0),
             pygame.Rect(
-                pix_square_size * self._Goal_location,
+                pix_square_size * np.array(self._Goal_location),
                 (pix_square_size, pix_square_size),
             ),
         )
@@ -152,7 +166,7 @@ class SimpleEnv(gym.Env):
         pygame.draw.circle(
             canvas,
             (0, 0, 255),
-            (self._Obj_location + 0.5) * pix_square_size,
+            (np.array(self._Obj_location) + 0.5) * pix_square_size,
             pix_square_size / 3,
         )
 
@@ -160,7 +174,7 @@ class SimpleEnv(gym.Env):
             canvas,
             (255, 255, 0),  # You can use a different color (e.g., yellow) for the obstacle
             pygame.Rect(
-                pix_square_size * self._Obs1_location,
+                pix_square_size * np.array(self._Obs1_location),
                 (pix_square_size, pix_square_size),
             ),
         )
@@ -186,7 +200,7 @@ class SimpleEnv(gym.Env):
             self.window.blit(canvas, canvas.get_rect())
             pygame.event.pump()
             pygame.display.update()
-            pygame.time.delay(1000)  # Add a 1-second delay (1000 milliseconds)
+            pygame.time.delay(10000)  # Add a 1-second delay (1000 milliseconds)
             # We need to ensure that human-rendering occurs at the predefined framerate.
             # The following line will automatically add a delay to keep the framerate stable.
             self.clock.tick(self.metadata["render_fps"])
